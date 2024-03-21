@@ -1,5 +1,5 @@
 use std::{collections::HashMap, fmt, sync::RwLock};
-use tracing::{field::Visit, Subscriber};
+use tracing::{field::Visit, Collect};
 use tracing_core::{Field, Interest, Metadata};
 
 use opentelemetry::{
@@ -8,9 +8,9 @@ use opentelemetry::{
 };
 use tracing_subscriber::{
     filter::Filtered,
-    layer::{Context, Filter},
     registry::LookupSpan,
-    Layer,
+    subscribe::{Context, Filter},
+    Subscribe,
 };
 
 use smallvec::SmallVec;
@@ -326,7 +326,7 @@ pub struct MetricsLayer<S> {
 
 impl<S> MetricsLayer<S>
 where
-    S: Subscriber + for<'span> LookupSpan<'span>,
+    S: Collect + for<'span> LookupSpan<'span>,
 {
     /// Create a new instance of MetricsLayer.
     pub fn new<M>(meter_provider: M) -> MetricsLayer<S>
@@ -384,9 +384,9 @@ struct InstrumentLayer {
     instruments: Instruments,
 }
 
-impl<S> Layer<S> for InstrumentLayer
+impl<S> Subscribe<S> for InstrumentLayer
 where
-    S: Subscriber + for<'span> LookupSpan<'span>,
+    S: Collect + for<'span> LookupSpan<'span>,
 {
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
         let mut attributes = SmallVec::new();
@@ -411,12 +411,12 @@ where
     }
 }
 
-impl<S> Layer<S> for MetricsLayer<S>
+impl<S> Subscribe<S> for MetricsLayer<S>
 where
-    S: Subscriber + for<'span> LookupSpan<'span>,
+    S: Collect + for<'span> LookupSpan<'span>,
 {
-    fn on_layer(&mut self, subscriber: &mut S) {
-        self.inner.on_layer(subscriber)
+    fn on_subscribe(&mut self, subscriber: &mut S) {
+        self.inner.on_subscribe(subscriber)
     }
 
     fn register_callsite(&self, metadata: &'static Metadata<'static>) -> Interest {
@@ -486,13 +486,14 @@ where
 
 #[cfg(test)]
 mod tests {
+    use tracing_subscriber::subscribe::CollectExt as _;
+
     use super::*;
-    use tracing_subscriber::layer::SubscriberExt;
 
     struct PanicLayer;
-    impl<S> Layer<S> for PanicLayer
+    impl<S> Subscribe<S> for PanicLayer
     where
-        S: Subscriber + for<'span> LookupSpan<'span>,
+        S: Collect + for<'span> LookupSpan<'span>,
     {
         fn on_event(&self, _event: &tracing_core::Event<'_>, _ctx: Context<'_, S>) {
             panic!("panic");
@@ -504,7 +505,7 @@ mod tests {
         let layer = PanicLayer.with_filter(MetricsFilter);
         let subscriber = tracing_subscriber::registry().with(layer);
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::info!(key = "val", "foo");
         });
     }

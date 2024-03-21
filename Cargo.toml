@@ -27,10 +27,10 @@ metrics = ["opentelemetry/metrics","opentelemetry_sdk/metrics", "smallvec"]
 [dependencies]
 opentelemetry = { version = "0.22.0", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.22.0", default-features = false, features = ["trace"] }
-tracing = { version = "0.1.35", default-features = false, features = ["std"] }
-tracing-core = "0.1.28"
-tracing-subscriber = { version = "0.3.0", default-features = false, features = ["registry", "std"] }
-tracing-log = { version = "0.2.0", default-features = false, optional = true }
+tracing = {  git = "https://github.com/tokio-rs/tracing.git", rev = "b8c45ccd067a6aebdd9257c5edda6bc90bcf9028", default-features = false, features = ["std"] }
+tracing-core = { git = "https://github.com/tokio-rs/tracing.git", rev = "b8c45ccd067a6aebdd9257c5edda6bc90bcf9028" }
+tracing-subscriber = { git = "https://github.com/tokio-rs/tracing.git", rev = "b8c45ccd067a6aebdd9257c5edda6bc90bcf9028", features = ["registry", "std"] }
+tracing-log = {  git = "https://github.com/tokio-rs/tracing.git", rev = "b8c45ccd067a6aebdd9257c5edda6bc90bcf9028", default-features = false, optional = true }
 once_cell = "1.13.0"
 
 # Fix minimal-versions
@@ -51,9 +51,9 @@ opentelemetry-semantic-conventions = "0.14.0"
 futures-util = { version = "0.3.17", default-features = false }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
-tracing = { version = "0.1.35", default-features = false, features = ["std", "attributes"] }
-tracing-error = "0.2.0"
-tracing-subscriber = { version = "0.3.0", default-features = false, features = ["registry", "std", "fmt"] }
+tracing = { git = "https://github.com/tokio-rs/tracing.git", rev = "b8c45ccd067a6aebdd9257c5edda6bc90bcf9028", default-features = false, features = ["std", "attributes"] }
+tracing-error = { git = "https://github.com/tokio-rs/tracing.git", rev = "b8c45ccd067a6aebdd9257c5edda6bc90bcf9028" }
+tracing-subscriber = { git = "https://github.com/tokio-rs/tracing.git", rev = "b8c45ccd067a6aebdd9257c5edda6bc90bcf9028",  default-features = false, features = ["registry", "std", "fmt"] }
 
 [target.'cfg(not(target_os = "windows"))'.dev-dependencies]
 pprof = { version = "0.13.0", features = ["flamegraph", "criterion"] }

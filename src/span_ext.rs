@@ -138,7 +138,7 @@ pub trait OpenTelemetrySpanExt {
 impl OpenTelemetrySpanExt for tracing::Span {
     fn set_parent(&self, cx: Context) {
         let mut cx = Some(cx);
-        self.with_subscriber(move |(id, subscriber)| {
+        self.with_collector(move |(id, subscriber)| {
             if let Some(get_context) = subscriber.downcast_ref::<WithContext>() {
                 get_context.with_context(subscriber, id, move |data, _tracer| {
                     if let Some(cx) = cx.take() {
@@ -157,7 +157,7 @@ impl OpenTelemetrySpanExt for tracing::Span {
         if cx.is_valid() {
             let mut cx = Some(cx);
             let mut att = Some(attributes);
-            self.with_subscriber(move |(id, subscriber)| {
+            self.with_collector(move |(id, subscriber)| {
                 if let Some(get_context) = subscriber.downcast_ref::<WithContext>() {
                     get_context.with_context(subscriber, id, move |data, _tracer| {
                         if let Some(cx) = cx.take() {
@@ -176,7 +176,7 @@ impl OpenTelemetrySpanExt for tracing::Span {
 
     fn context(&self) -> Context {
         let mut cx = None;
-        self.with_subscriber(|(id, subscriber)| {
+        self.with_collector(|(id, subscriber)| {
             if let Some(get_context) = subscriber.downcast_ref::<WithContext>() {
                 get_context.with_context(subscriber, id, |builder, tracer| {
                     cx = Some(tracer.sampled_context(builder));
@@ -188,7 +188,7 @@ impl OpenTelemetrySpanExt for tracing::Span {
     }
 
     fn set_attribute(&self, key: impl Into<Key>, value: impl Into<Value>) {
-        self.with_subscriber(move |(id, subscriber)| {
+        self.with_collector(move |(id, subscriber)| {
             if let Some(get_context) = subscriber.downcast_ref::<WithContext>() {
                 let mut key = Some(key.into());
                 let mut value = Some(value.into());

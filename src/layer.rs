@@ -4,19 +4,19 @@ use opentelemetry::{
     trace::{self as otel, noop, SpanBuilder, SpanKind, Status, TraceContextExt},
     Context as OtelContext, Key, KeyValue, StringValue, Value,
 };
-use std::fmt;
 use std::marker;
 use std::thread;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 use std::{any::TypeId, borrow::Cow};
+use std::{fmt, ptr::NonNull};
 use tracing_core::span::{self, Attributes, Id, Record};
-use tracing_core::{field, Event, Subscriber};
+use tracing_core::{field, Collect, Event};
 #[cfg(feature = "tracing-log")]
 use tracing_log::NormalizeEvent;
-use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
+use tracing_subscriber::subscribe::Context;
+use tracing_subscriber::Subscribe;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
@@ -46,7 +46,7 @@ pub struct OpenTelemetryLayer<S, T> {
 
 impl<S> Default for OpenTelemetryLayer<S, noop::NoopTracer>
 where
-    S: Subscriber + for<'span> LookupSpan<'span>,
+    S: Collect + for<'span> LookupSpan<'span>,
 {
     fn default() -> Self {
         OpenTelemetryLayer::new(noop::NoopTracer::new())
@@ -70,7 +70,7 @@ where
 /// ```
 pub fn layer<S>() -> OpenTelemetryLayer<S, noop::NoopTracer>
 where
-    S: Subscriber + for<'span> LookupSpan<'span>,
+    S: Collect + for<'span> LookupSpan<'span>,
 {
     OpenTelemetryLayer::default()
 }
@@ -502,7 +502,7 @@ impl<'a> field::Visit for SpanAttributeVisitor<'a> {
 
 impl<S, T> OpenTelemetryLayer<S, T>
 where
-    S: Subscriber + for<'span> LookupSpan<'span>,
+    S: Collect + for<'span> LookupSpan<'span>,
     T: otel::Tracer + PreSampledTracer + 'static,
 {
     /// Set the [`Tracer`] that this layer will use to produce and track
@@ -883,9 +883,9 @@ thread_local! {
     });
 }
 
-impl<S, T> Layer<S> for OpenTelemetryLayer<S, T>
+impl<S, T> Subscribe<S> for OpenTelemetryLayer<S, T>
 where
-    S: Subscriber + for<'span> LookupSpan<'span>,
+    S: Collect + for<'span> LookupSpan<'span>,
     T: otel::Tracer + PreSampledTracer + 'static,
 {
     /// Creates an [OpenTelemetry `Span`] for the corresponding [tracing `Span`].
@@ -1173,11 +1173,11 @@ where
 
     // SAFETY: this is safe because the `WithContext` function pointer is valid
     // for the lifetime of `&self`.
-    unsafe fn downcast_raw(&self, id: TypeId) -> Option<*const ()> {
+    unsafe fn downcast_raw(&self, id: TypeId) -> Option<NonNull<()>> {
         match id {
-            id if id == TypeId::of::<Self>() => Some(self as *const _ as *const ()),
+            id if id == TypeId::of::<Self>() => Some(NonNull::from(self).cast()),
             id if id == TypeId::of::<WithContext>() => {
-                Some(&self.get_context as *const _ as *const ())
+                Some(NonNull::from(&self.get_context).cast())
             }
             _ => None,
         }
@@ -1329,7 +1329,7 @@ mod tests {
         let tracer = TestTracer(Arc::new(Mutex::new(None)));
         let subscriber = tracing_subscriber::registry().with(layer().with_tracer(tracer.clone()));
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!("static_name", otel.name = dynamic_name.as_str());
         });
 
@@ -1347,7 +1347,7 @@ mod tests {
         let tracer = TestTracer(Arc::new(Mutex::new(None)));
         let subscriber = tracing_subscriber::registry().with(layer().with_tracer(tracer.clone()));
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!("request", otel.kind = "server");
         });
 
@@ -1360,7 +1360,7 @@ mod tests {
         let tracer = TestTracer(Arc::new(Mutex::new(None)));
         let subscriber = tracing_subscriber::registry().with(layer().with_tracer(tracer.clone()));
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!("request", otel.status_code = ?otel::Status::Ok);
         });
 
@@ -1375,7 +1375,7 @@ mod tests {
 
         let message = "message";
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!("request", otel.status_message = message);
         });
 
@@ -1406,7 +1406,7 @@ mod tests {
         )));
         let _g = existing_cx.attach();
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!("request", otel.kind = "server");
         });
 
@@ -1424,7 +1424,7 @@ mod tests {
                 .with_tracked_inactivity(true),
         );
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!("request");
         });
 
@@ -1446,7 +1446,7 @@ mod tests {
             .with_parent("intermediate error")
             .with_parent("user error");
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!(
                 "request",
                 error = &err as &(dyn std::error::Error + 'static)
@@ -1508,7 +1508,7 @@ mod tests {
             .with_parent("intermediate error")
             .with_parent("user error");
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!(
                 "request",
                 error = &err as &(dyn std::error::Error + 'static)
@@ -1563,7 +1563,7 @@ mod tests {
         let subscriber = tracing_subscriber::registry()
             .with(layer().with_tracer(tracer.clone()).with_location(true));
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!("request");
         });
 
@@ -1583,7 +1583,7 @@ mod tests {
         let subscriber = tracing_subscriber::registry()
             .with(layer().with_tracer(tracer.clone()).with_location(false));
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!("request");
         });
 
@@ -1609,7 +1609,7 @@ mod tests {
         let subscriber = tracing_subscriber::registry()
             .with(layer().with_tracer(tracer.clone()).with_threads(true));
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!("request");
         });
 
@@ -1628,7 +1628,7 @@ mod tests {
         let subscriber = tracing_subscriber::registry()
             .with(layer().with_tracer(tracer.clone()).with_threads(false));
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             tracing::debug_span!("request");
         });
 
@@ -1650,7 +1650,7 @@ mod tests {
             .with_parent("intermediate error")
             .with_parent("user error");
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             let _guard = tracing::debug_span!("request",).entered();
 
             tracing::error!(
@@ -1702,7 +1702,7 @@ mod tests {
             .with_parent("intermediate error")
             .with_parent("user error");
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             let _guard = tracing::debug_span!("request",).entered();
 
             tracing::error!(
@@ -1750,9 +1750,9 @@ mod tests {
                     .with_error_fields_to_exceptions(false)
                     .with_tracer(tracer.clone()),
             )
-            .with(tracing_error::ErrorLayer::default());
+            .with(tracing_error::ErrorSubscriber::default());
 
-        tracing::subscriber::with_default(subscriber, || {
+        tracing::collect::with_default(subscriber, || {
             let span = tracing::info_span!("Blows up!", exception = tracing::field::Empty);
             let _entered = span.enter();
             let context = tracing_error::SpanTrace::capture();
